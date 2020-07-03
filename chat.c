@@ -156,7 +156,7 @@ void *output_screen() {
         // if receive thread is waiting, signal it
         pthread_mutex_unlock(&mutex_print);
         pthread_cond_signal(&cond_receiverWait);
-        printf("the message received: %s\n", msg);
+        printf("Remote User: %s\n", msg);
     }
    pthread_exit(0);
 }
@@ -182,7 +182,6 @@ void *send_data(void *remaddr) {
         while(List_count(sendList) == 0){
             pthread_cond_wait(&cond_senderWait, &mutex_send);
         }
-        printf("send thread entered\n");
         // copy and remove the first message from sendList
         strcpy(msg, List_first(sendList));
         List_remove(sendList);
@@ -233,6 +232,8 @@ void *receive_data(void *remaddr) {
         }
 
         List_add(printList, msg);
+        // unlock access to printList
+        pthread_mutex_unlock(&mutex_print);
         pthread_cond_signal(&cond_outputWait);
         while(List_count(printList) == 1){
             pthread_cond_wait(&cond_receiverWait, &mutex_print);
@@ -243,10 +244,6 @@ void *receive_data(void *remaddr) {
         pthread_mutex_unlock(&mutex_print);
 
 
-        // if the message is '!', break while loop and exit the thread
-        if(onChat == false){
-            break;
-        }
     }
 
     pthread_exit(0);
