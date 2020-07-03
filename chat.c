@@ -80,14 +80,9 @@ void *input_keyboard() {
         fgets(msg, MSG_MAX_LEN, stdin);
         msg[strlen(msg)-1] = '\0';
 
-        // add message to sendList
-        // failed add means sendList is full
-        // input thread have to wait until send thread wake up it
-        while (List_count(sendList) == 1){
-            pthread_cond_wait(&cond_inputWait, &mutex_send);
-        };
-        
+        // add message to sendList, then wait until send thread send it out
         List_add(sendList,msg);
+        pthread_cond_wait(&cond_inputWait, &mutex_send);
 
         // printf("length of sendList = %d \n",List_count(sendList));
         // if input message is '!', I want to terminate the conversation
@@ -187,6 +182,7 @@ void *send_data(void *remaddr) {
         while(List_count(sendList) == 0){
             pthread_cond_wait(&cond_senderWait, &mutex_send);
         }
+        printf("send thread entered\n");
         // copy and remove the first message from sendList
         strcpy(msg, List_first(sendList));
         List_remove(sendList);
@@ -195,7 +191,7 @@ void *send_data(void *remaddr) {
         // if input thread is waiting, signal it
         pthread_mutex_unlock(&mutex_send);
         pthread_cond_signal(&cond_inputWait);
-        // send message to remote user
+        // send message to remote use
         if (sendto(my_socket, msg, strlen(msg), 0, (struct sockaddr *) &peer_addr, sin_len) < 0){
             perror ("sento failed");
             exit(1);
