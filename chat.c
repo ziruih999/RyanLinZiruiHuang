@@ -183,18 +183,23 @@ void *output_screen() {
         if (msg[0] == '!' && msg[1]== '\0'){
             printf("......termination request by REMOTE-USER......\n");
             onChat = false;
-            // cancel threads and socket
-            pthread_cancel(sendData);
-            pthread_cancel(receiveData);
-            pthread_cancel(keyboard);
-            close(my_socket);     
             // destroy condition variables and mutex
+            pthread_mutex_unlock(&mutex_print);
+            pthread_mutex_unlock(&mutex_send);
             pthread_mutex_destroy(&mutex_send);
             pthread_mutex_destroy(&mutex_print);
+            printf("aaaaaaaaaaaaaaaaaa\n");
             pthread_cond_destroy(&cond_inputWait);
             pthread_cond_destroy(&cond_outputWait);
             pthread_cond_destroy(&cond_senderWait);
             pthread_cond_destroy(&cond_receiverWait);
+            // cancel threads and socket
+            
+            pthread_cancel(sendData);
+            pthread_cancel(receiveData);
+            pthread_cancel(keyboard);
+            close(my_socket); 
+            printf("eeee");    
             pthread_exit(0);
         }
         // leave Critical Section, unlock access to printList
@@ -233,13 +238,12 @@ void *receive_data(void *remaddr) {
 
         // critical section
         List_add(printList, msg);
-        
+
         // unlock access to printList
-        pthread_mutex_unlock(&mutex_print);
+        // pthread_mutex_unlock(&mutex_print);
         pthread_cond_signal(&cond_outputWait);
-        while(List_count(printList) == 1){
-            pthread_cond_wait(&cond_receiverWait, &mutex_print);
-        }
+        pthread_cond_wait(&cond_receiverWait, &mutex_print);
+
         
 
         // unlock access to printList
