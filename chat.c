@@ -94,8 +94,8 @@ void *input_keyboard() {
             printf("...... terminating request by ME ......\n");
             // ready to return to main thread
             // unlock access to printList(send thread only)
-            pthread_mutex_unlock(&mutex_send);
-            pthread_cond_signal(&cond_senderWait);
+            // pthread_mutex_unlock(&mutex_send);
+            // pthread_cond_signal(&cond_senderWait);
             // turnoff onChat, no more input
             onChat = false;
             // destroy condition variables and mutex
@@ -116,7 +116,6 @@ void *input_keyboard() {
             pthread_mutex_unlock(&mutex_send);
         }
     }
-    pthread_exit(0);
 }
 
 /*
@@ -183,7 +182,12 @@ void *output_screen() {
         // if it's a termination message
         if (msg[0] == '!' && msg[1]== '\0'){
             printf("......termination request by REMOTE-USER......\n");
-            
+            onChat = false;
+            // cancel threads and socket
+            pthread_cancel(sendData);
+            pthread_cancel(receiveData);
+            pthread_cancel(keyboard);
+            close(my_socket);     
             // destroy condition variables and mutex
             pthread_mutex_destroy(&mutex_send);
             pthread_mutex_destroy(&mutex_print);
@@ -191,6 +195,7 @@ void *output_screen() {
             pthread_cond_destroy(&cond_outputWait);
             pthread_cond_destroy(&cond_senderWait);
             pthread_cond_destroy(&cond_receiverWait);
+            pthread_exit(0);
         }
         // leave Critical Section, unlock access to printList
         // if receive thread is waiting, signal it
@@ -198,7 +203,7 @@ void *output_screen() {
         pthread_cond_signal(&cond_receiverWait);
         printf("Remote User: %s\n", msg);
     }
-   pthread_exit(0);
+   
 }
 
 
@@ -226,16 +231,9 @@ void *receive_data(void *remaddr) {
         int terminateIdx = (bytesRx < MSG_MAX_LEN) ? bytesRx : MSG_MAX_LEN - 1;
 		msg[terminateIdx] = 0;
 
-        // // if msg[0] --> remote user want to terminate
-        // if (msg[0] == '!' && msg[1] == '\0'){
-        //     onChat = false;
-        //     // cancel threads and socket
-        //     pthread_cancel(sendData);
-        //     pthread_cancel(receiveData);
-        //     close(my_socket);            
-        // }
-
+        // critical section
         List_add(printList, msg);
+        
         // unlock access to printList
         pthread_mutex_unlock(&mutex_print);
         pthread_cond_signal(&cond_outputWait);
