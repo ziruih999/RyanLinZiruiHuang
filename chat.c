@@ -31,89 +31,89 @@ reference: http://zhangxiaoya.github.io/2015/05/15/multi-thread-of-c-program-lan
 
 // ***** global variables block *****
 
-// local socket
-int my_socket;
+static int my_socket;
+static struct sockaddr_in my_addr, peer_addr;
+static pthread_t keyboard, screen, receiveData, sendData;
 
-// socket addresses
-struct sockaddr_in my_addr, peer_addr;
-
-// declare threads
-pthread_t keyboard, screen, receiveData, sendData;
-
-// Lists
-List* sendList; //shared by input & send
-List* printList; //shared by output & receive
+static List* sendList; //shared by input & send (consumer:send, producer:input)
+static List* printList; //shared by output & receive (consumer:output, producer:receive)
 
 // mutexs 
-pthread_mutex_t mutex_send = PTHREAD_MUTEX_INITIALIZER; //for sendList (consumer:send, producer:input)
-pthread_mutex_t mutex_print = PTHREAD_MUTEX_INITIALIZER; //for printList (consumer:output, producer:receive)
+static pthread_mutex_t mutex_send = PTHREAD_MUTEX_INITIALIZER; //for sendList 
+static pthread_mutex_t mutex_print = PTHREAD_MUTEX_INITIALIZER; //for printList 
 
 // condition variables
-pthread_cond_t cond_inputWait = PTHREAD_COND_INITIALIZER; // if more message can be added to sendList?
-pthread_cond_t cond_outputWait = PTHREAD_COND_INITIALIZER; // if any message in the printList?
-pthread_cond_t cond_senderWait = PTHREAD_COND_INITIALIZER; // if any message in the sendList?
-pthread_cond_t cond_receiverWait = PTHREAD_COND_INITIALIZER; // if more message can be added to printList?
+static pthread_cond_t cond_inputWait = PTHREAD_COND_INITIALIZER; // wait send thread to send message
+static pthread_cond_t cond_outputWait = PTHREAD_COND_INITIALIZER; // wait new message from receive thread
+static pthread_cond_t cond_senderWait = PTHREAD_COND_INITIALIZER; // wait new message from input thread
+static pthread_cond_t cond_receiverWait = PTHREAD_COND_INITIALIZER; // wait output thread to print the message
 
-// turnoff onChat when chat terminate
-bool onChat = true; 
+// is chat still open?
+static bool onChat = true; 
 
 /*
     goal: get message from input and add that message to sendList
-    1. lock access to sendList when enter
-    2. get message from keyboard
-    3. if sendList is full, wait until send thread wake it up
-    4. add message to sendList
+    1. get message from keyboard
+    2. lock mutex_send
+    3. add message to sendList
+    4. unlock mutex_send
+    4. let send thread send the message out
     5. if message is '!':
-            no more message to be received: cancel receive and output thread
+            no more message to be received: cancel other threads, exit
 */
 void *input_keyboard() {
 
     char msg[MSG_MAX_LEN];
     while (onChat){
-        // lock access to sendList
-        pthread_mutex_lock(&mutex_send);
 
         // get message from keyboard
         // https://stackoverflow.com/a/22065708
         memset(msg, '\0', MSG_MAX_LEN);
-        printf("message: ");
+        printf("Enter message\n");
         fgets(msg, MSG_MAX_LEN, stdin);
         msg[strlen(msg)-1] = '\0';
 
-        // enter critical section
+        // Start critical section
+        pthread_mutex_lock(&mutex_send);
         List_add(sendList,msg); 
-        // exit critical section
+        // End critical section
 
-        // OK, now send thread can run
+        // OK, now it is turn for send thread, unlock it
+        // send thread is either blocked on mutex or condition variable
         pthread_cond_signal(&cond_senderWait);
-        // I have to wait until send thread send the msg out
         pthread_cond_wait(&cond_inputWait, &mutex_send);
 
         // if input message is '!', I want to terminate the conversation
+        // ready to return to main thread
         if (msg[0] == '!' && msg[1] == '\0'){
-            printf("...... terminating request by ME ......\n");
-            // ready to return to main thread
-            // unlock access to printList(send thread only)
-            // pthread_mutex_unlock(&mutex_send);
-            // pthread_cond_signal(&cond_senderWait);
-            // turnoff onChat, no more input
+            printf("...... terminating request by ME ......\n");            
+            // turnoff onChat
             onChat = false;
+
             // destroy condition variables and mutex
             pthread_mutex_destroy(&mutex_send);
             pthread_mutex_destroy(&mutex_print);
             pthread_cond_destroy(&cond_inputWait);
-            pthread_cond_destroy(&cond_outputWait);
+            printf("1\n");
             pthread_cond_destroy(&cond_senderWait);
+            printf("3\n");
             pthread_cond_destroy(&cond_receiverWait);
+            printf("4\n");
+            pthread_cond_destroy(&cond_outputWait);
+            printf("2\n");
             // cancel threads
             pthread_cancel(receiveData);
             pthread_cancel(screen);
             pthread_cancel(sendData);
             close(my_socket);
+            
+
+            
             pthread_exit(0);
+            
         }
         else{
-            pthread_mutex_unlock(&mutex_send);
+             pthread_mutex_unlock(&mutex_send);
         }
     }
 }
@@ -131,14 +131,15 @@ void *input_keyboard() {
 void *send_data(void *remaddr) {
     char msg[MSG_MAX_LEN];
     unsigned int sin_len = sizeof(peer_addr);
-    while(1){
+    while(onChat){
         // lock access to sendList
         pthread_mutex_lock(&mutex_send);
         // if nothing in sendList, wait
         while(List_count(sendList) == 0){
             pthread_cond_wait(&cond_senderWait, &mutex_send);
         }
-        // copy and remove the first message from sendList
+        
+        // Start critical section
         strcpy(msg, List_first(sendList));
         List_remove(sendList);
 
@@ -179,35 +180,14 @@ void *output_screen() {
         strcpy(msg, List_first(printList));
         List_remove(printList);
 
-        // if it's a termination message
-        if (msg[0] == '!' && msg[1]== '\0'){
-            printf("......termination request by REMOTE-USER......\n");
-            onChat = false;
-            // destroy condition variables and mutex
-            pthread_mutex_unlock(&mutex_print);
-            pthread_mutex_unlock(&mutex_send);
-            pthread_mutex_destroy(&mutex_send);
-            pthread_mutex_destroy(&mutex_print);
-            printf("aaaaaaaaaaaaaaaaaa\n");
-            pthread_cond_destroy(&cond_inputWait);
-            pthread_cond_destroy(&cond_outputWait);
-            pthread_cond_destroy(&cond_senderWait);
-            pthread_cond_destroy(&cond_receiverWait);
-            // cancel threads and socket
-            
-            pthread_cancel(sendData);
-            pthread_cancel(receiveData);
-            pthread_cancel(keyboard);
-            close(my_socket); 
-            printf("eeee");    
-            pthread_exit(0);
-        }
         // leave Critical Section, unlock access to printList
         // if receive thread is waiting, signal it
         pthread_mutex_unlock(&mutex_print);
         pthread_cond_signal(&cond_receiverWait);
         printf("Remote User: %s\n", msg);
     }
+    printf("output is going to exit\n");
+    pthread_exit(0);
    
 }
 
@@ -236,6 +216,26 @@ void *receive_data(void *remaddr) {
         int terminateIdx = (bytesRx < MSG_MAX_LEN) ? bytesRx : MSG_MAX_LEN - 1;
 		msg[terminateIdx] = 0;
 
+        // if it's a termination message
+        if (msg[0] == '!' && msg[1]== '\0'){
+            printf("......termination request by REMOTE-USER......\n");
+            onChat = false;
+            // destroy condition variables and mutex
+            pthread_mutex_unlock(&mutex_print);
+            pthread_mutex_unlock(&mutex_send);
+            pthread_mutex_destroy(&mutex_send);
+            pthread_mutex_destroy(&mutex_print);
+            pthread_cond_destroy(&cond_inputWait);
+            pthread_cond_destroy(&cond_outputWait);
+            pthread_cond_destroy(&cond_senderWait);
+            pthread_cond_destroy(&cond_receiverWait);
+            // cancel threads and socket
+            pthread_cancel(sendData);
+            pthread_cancel(receiveData);
+            pthread_cancel(keyboard);
+            close(my_socket);    
+            pthread_exit(0);
+        }
         // critical section
         List_add(printList, msg);
 
@@ -251,7 +251,7 @@ void *receive_data(void *remaddr) {
 
 
     }
-
+    printf("receive is going to exit\n");
     pthread_exit(0);
    
 }
@@ -320,8 +320,12 @@ int main(int argc, char** argv){
     pthread_create(&receiveData, NULL, receive_data, NULL);
     pthread_create(&sendData, NULL, send_data, NULL);
     pthread_join(keyboard, NULL);
+    printf("***********input thread end *************\n");
     pthread_join(screen, NULL);
+    printf("***********output thread end *************\n");
     pthread_join(receiveData, NULL);
+    printf("***********receive thread end *************\n");
     pthread_join(sendData, NULL);    
+    printf("***********send thread end *************\n");
     return 0;
 }
