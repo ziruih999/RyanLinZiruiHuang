@@ -82,37 +82,32 @@ void *input_keyboard() {
         // send thread is either blocked on mutex or condition variable
         pthread_cond_signal(&cond_senderWait);
         pthread_cond_wait(&cond_inputWait, &mutex_send);
-
         // if input message is '!', I want to terminate the conversation
         // ready to return to main thread
         if (msg[0] == '!' && msg[1] == '\0'){
             printf("...... terminating request by ME ......\n");            
             // turnoff onChat
             onChat = false;
-
-            // destroy condition variables and mutex
-            pthread_mutex_destroy(&mutex_send);
-            pthread_mutex_destroy(&mutex_print);
-            pthread_cond_destroy(&cond_inputWait);
-            printf("1\n");
-            pthread_cond_destroy(&cond_senderWait);
-            printf("3\n");
-            pthread_cond_destroy(&cond_receiverWait);
-            printf("4\n");
-            pthread_cond_destroy(&cond_outputWait);
-            printf("2\n");
             // cancel threads
+            pthread_cancel(sendData);
             pthread_cancel(receiveData);
             pthread_cancel(screen);
-            pthread_cancel(sendData);
+            
             close(my_socket);
-            
-
-            
+            // destroy condition variables and mutex
+            pthread_mutex_unlock(&mutex_print);
+            pthread_mutex_unlock(&mutex_send);
+            pthread_mutex_destroy(&mutex_send);
+            pthread_mutex_destroy(&mutex_print);
+            pthread_cond_destroy(&cond_outputWait);
+            pthread_cond_destroy(&cond_inputWait);
+            pthread_cond_destroy(&cond_senderWait);
+            pthread_cond_destroy(&cond_receiverWait);     
             pthread_exit(0);
             
         }
         else{
+             // have to unlock mutex otherwise input thread cannot continue
              pthread_mutex_unlock(&mutex_send);
         }
     }
@@ -132,19 +127,19 @@ void *send_data(void *remaddr) {
     char msg[MSG_MAX_LEN];
     unsigned int sin_len = sizeof(peer_addr);
     while(onChat){
-        // lock access to sendList
+
+        // Start critical section
         pthread_mutex_lock(&mutex_send);
         // if nothing in sendList, wait
-        while(List_count(sendList) == 0){
+        if(List_count(sendList) == 0){
+            pthread_testcancel();
             pthread_cond_wait(&cond_senderWait, &mutex_send);
         }
-        
-        // Start critical section
         strcpy(msg, List_first(sendList));
         List_remove(sendList);
 
         // leave Critical Section, unlock access to sendList
-        // if input thread is waiting, signal it
+        // input thread is waiting, signal it
         pthread_mutex_unlock(&mutex_send);
         pthread_cond_signal(&cond_inputWait);
         // send message to remote use
@@ -153,7 +148,6 @@ void *send_data(void *remaddr) {
             exit(1);
         }   
     }
-    printf("send going to exit\n");
     pthread_exit(0);
 }
 
@@ -167,13 +161,15 @@ void *send_data(void *remaddr) {
 
 void *output_screen() {
     char msg[MSG_MAX_LEN];
-
+    pthread_testcancel();
     while(onChat){
         // block access to printList
         pthread_mutex_lock(&mutex_print);
         // if no message in printList
         // wait until receive thread 
-        while(List_count(printList) == 0){
+        
+        if(List_count(printList) == 0){
+            pthread_testcancel();
             pthread_cond_wait(&cond_outputWait, &mutex_print);
         }
         // copy and remove the first message from printList
@@ -186,7 +182,6 @@ void *output_screen() {
         pthread_cond_signal(&cond_receiverWait);
         printf("Remote User: %s\n", msg);
     }
-    printf("output is going to exit\n");
     pthread_exit(0);
    
 }
@@ -220,6 +215,11 @@ void *receive_data(void *remaddr) {
         if (msg[0] == '!' && msg[1]== '\0'){
             printf("......termination request by REMOTE-USER......\n");
             onChat = false;
+            // cancel threads and socket
+            pthread_cancel(sendData);
+            pthread_cancel(screen);
+            pthread_cancel(keyboard);
+            close(my_socket);
             // destroy condition variables and mutex
             pthread_mutex_unlock(&mutex_print);
             pthread_mutex_unlock(&mutex_send);
@@ -229,11 +229,7 @@ void *receive_data(void *remaddr) {
             pthread_cond_destroy(&cond_outputWait);
             pthread_cond_destroy(&cond_senderWait);
             pthread_cond_destroy(&cond_receiverWait);
-            // cancel threads and socket
-            pthread_cancel(sendData);
-            pthread_cancel(receiveData);
-            pthread_cancel(keyboard);
-            close(my_socket);    
+    
             pthread_exit(0);
         }
         // critical section
@@ -243,15 +239,9 @@ void *receive_data(void *remaddr) {
         // pthread_mutex_unlock(&mutex_print);
         pthread_cond_signal(&cond_outputWait);
         pthread_cond_wait(&cond_receiverWait, &mutex_print);
-
-        
-
         // unlock access to printList
         pthread_mutex_unlock(&mutex_print);
-
-
     }
-    printf("receive is going to exit\n");
     pthread_exit(0);
    
 }
@@ -308,8 +298,6 @@ int main(int argc, char** argv){
     peer_addr.sin_family = AF_INET;
     peer_addr.sin_port = htons(REMOTE_PORT);
     peer_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
-   
-
 
     // initialize Lists
     sendList = List_create();
@@ -320,12 +308,8 @@ int main(int argc, char** argv){
     pthread_create(&receiveData, NULL, receive_data, NULL);
     pthread_create(&sendData, NULL, send_data, NULL);
     pthread_join(keyboard, NULL);
-    printf("***********input thread end *************\n");
-    pthread_join(screen, NULL);
-    printf("***********output thread end *************\n");
-    pthread_join(receiveData, NULL);
-    printf("***********receive thread end *************\n");
     pthread_join(sendData, NULL);    
-    printf("***********send thread end *************\n");
+    pthread_join(receiveData, NULL);
+    pthread_join(screen, NULL);
     return 0;
 }
