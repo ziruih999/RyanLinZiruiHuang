@@ -297,7 +297,7 @@ int main(int argc, char** argv){
 
     peer_addr.sin_family = AF_INET;
     peer_addr.sin_port = htons(REMOTE_PORT);
-    peer_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    peer_addr.sin_addr.s_addr = inet_addr("174.7.42.198");
 
     // initialize Lists
     sendList = List_create();
