@@ -1,23 +1,30 @@
 /*
 get help with Programming with UDP sockets
-reference : https://www.cs.rutgers.edu/~pxk/417/notes/sockets/udp.html
+reference: https://www.cs.rutgers.edu/~pxk/417/notes/sockets/udp.html
+
+get help with P2P socket programming
+reference: https://stackoverflow.com/a/15027222
 
 get help with multithreading programming
 reference: https://www.geeksforgeeks.org/multithreading-c-2/
 reference: http://zhangxiaoya.github.io/2015/05/15/multi-thread-of-c-program-language-on-linux/
+
+get help with find ip address
+reference: http://beej.us/guide/bgnet/html/#getaddrinfoprepare-to-launch
 */
+
 
 
 #include <stdio.h> 
 #include <stdlib.h> 
-#include <unistd.h> 
 #include <string.h> 
+#include <stdbool.h>
+#include <unistd.h> 
 #include <sys/types.h> 
 #include <sys/socket.h> 
 #include <arpa/inet.h> 
 #include <netinet/in.h> 
 #include <pthread.h>
-#include <stdbool.h>
 #include <errno.h>
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -51,6 +58,13 @@ static pthread_cond_t cond_receiverWait = PTHREAD_COND_INITIALIZER; // wait outp
 // is chat still open?
 static bool onChat = true; 
 
+// for fgets read text file
+// fgets will make msg = "\0" after reading the file
+// so we have to stop the chat when the reading complete
+static bool nullchar = false; 
+
+
+
 /*
     goal: get message from input and add that message to sendList
     1. get message from keyboard
@@ -62,20 +76,27 @@ static bool onChat = true;
             no more message to be received: cancel other threads, exit
 */
 void *input_keyboard() {
-
+    
     char msg[MSG_MAX_LEN];
     while (onChat){
-
+        
         // get message from keyboard
         // https://stackoverflow.com/a/22065708
-        memset(msg, '\0', MSG_MAX_LEN);
         printf("Enter message\n");
+        memset(msg, '\0', MSG_MAX_LEN);
         fgets(msg, MSG_MAX_LEN, stdin);
+        // the msg will be a null character after read a txt file
+        if (strlen(msg) == 0){
+            printf("nullchar\n");
+            nullchar = true;
+        }
         msg[strlen(msg)-1] = '\0';
-
         // Start critical section
         pthread_mutex_lock(&mutex_send);
         List_add(sendList,msg); 
+
+
+        
         // End critical section
 
         // OK, now it is turn for send thread, unlock it
@@ -84,7 +105,7 @@ void *input_keyboard() {
         pthread_cond_wait(&cond_inputWait, &mutex_send);
         // if input message is '!', I want to terminate the conversation
         // ready to return to main thread
-        if (msg[0] == '!' && msg[1] == '\0'){
+        if ((msg[0] == '!' && strlen(msg) == 1) || nullchar == true ){
             printf("...... terminating request by ME ......\n");            
             // turnoff onChat
             onChat = false;
@@ -212,7 +233,7 @@ void *receive_data(void *remaddr) {
 		msg[terminateIdx] = 0;
 
         // if it's a termination message
-        if (msg[0] == '!' && msg[1]== '\0'){
+        if ((msg[0] == '!' && msg[1]== '\0')){
             printf("......termination request by REMOTE-USER......\n");
             onChat = false;
             // cancel threads and socket
@@ -255,9 +276,7 @@ int main(int argc, char** argv){
     
     // Check argument format
     if (argc != 4){
-        printf("Please check your input!\n");
-        printf("The correct input format:\n");
-        printf("s-talk [my port number] [remote machine name] [remote port number]\n");
+        printf("Usage: %s <local port> <remote host> <remote port>\n", argv[0]);
         return 0;
     }
 
@@ -273,9 +292,8 @@ int main(int argc, char** argv){
         printf("Please enter correct [remote port number]!\n");
         return 0;
     }
-
-    // local socket
     
+    // local socket
     memset(&my_addr, 0, sizeof(my_addr));
     my_addr.sin_family = AF_INET;
     my_addr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -294,10 +312,32 @@ int main(int argc, char** argv){
     }
 
     // remote socket
+    struct addrinfo hint, *res, *p;
+    int status;
+    char remote_ip[20];
+    memset(&hint, 0, sizeof(peer_addr));
+    hint.ai_family = AF_INET;
+    hint.ai_socktype = SOCK_DGRAM;
+
+    if ((status = getaddrinfo(argv[2], argv[3], &hint, &res))!=0){
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
+        return 1;
+    }
+
+    for (p = res; p != NULL; p = p->ai_next){
+        void *addr;
+        if (p->ai_family == AF_INET){
+            struct sockaddr_in *ipv4 = (struct sockaddr_in *)p->ai_addr;
+            addr = &(ipv4->sin_addr);
+            inet_ntop (p->ai_family, addr, remote_ip, sizeof(remote_ip));
+            freeaddrinfo(res);
+        }
+        break;
+    }
 
     peer_addr.sin_family = AF_INET;
     peer_addr.sin_port = htons(REMOTE_PORT);
-    peer_addr.sin_addr.s_addr = inet_addr("174.7.42.198");
+    peer_addr.sin_addr.s_addr = inet_addr(remote_ip);
 
     // initialize Lists
     sendList = List_create();
