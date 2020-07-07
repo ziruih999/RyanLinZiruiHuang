@@ -9,7 +9,7 @@ get help with multithreading programming
 reference: https://www.geeksforgeeks.org/multithreading-c-2/
 reference: http://zhangxiaoya.github.io/2015/05/15/multi-thread-of-c-program-language-on-linux/
 
-get help with find ip address
+get help with finding ip address of remote host
 reference: http://beej.us/guide/bgnet/html/#getaddrinfoprepare-to-launch
 */
 
@@ -87,16 +87,12 @@ void *input_keyboard() {
         fgets(msg, MSG_MAX_LEN, stdin);
         // the msg will be a null character after read a txt file
         if (strlen(msg) == 0){
-            printf("nullchar\n");
             nullchar = true;
         }
         msg[strlen(msg)-1] = '\0';
         // Start critical section
         pthread_mutex_lock(&mutex_send);
         List_add(sendList,msg); 
-
-
-        
         // End critical section
 
         // OK, now it is turn for send thread, unlock it
@@ -158,7 +154,6 @@ void *send_data(void *remaddr) {
         }
         strcpy(msg, List_first(sendList));
         List_remove(sendList);
-
         // leave Critical Section, unlock access to sendList
         // input thread is waiting, signal it
         pthread_mutex_unlock(&mutex_send);
@@ -276,7 +271,7 @@ int main(int argc, char** argv){
     
     // Check argument format
     if (argc != 4){
-        printf("Usage: %s <local port> <remote host> <remote port>\n", argv[0]);
+        printf("Usage: %s <local port> <remote hostname> <remote port>\n", argv[0]);
         return 0;
     }
 
@@ -311,30 +306,28 @@ int main(int argc, char** argv){
         return 0;
     }
 
-    // remote socket
-    struct addrinfo hint, *res, *p;
-    int status;
-    char remote_ip[20];
+    // set up ip address of remote host
+    // reference: Beej's Guide to Network Programming
+    struct addrinfo hint, *result, *temp;
+    int rval;
+    char remote_ip[45];
     memset(&hint, 0, sizeof(peer_addr));
     hint.ai_family = AF_INET;
     hint.ai_socktype = SOCK_DGRAM;
 
-    if ((status = getaddrinfo(argv[2], argv[3], &hint, &res))!=0){
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(status));
+    if ((rval = getaddrinfo(argv[2], argv[3], &hint, &result))!=0){
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rval));
         return 1;
     }
-
-    for (p = res; p != NULL; p = p->ai_next){
+    for (temp = result; temp != NULL; temp = temp->ai_next){
         void *addr;
-        if (p->ai_family == AF_INET){
-            struct sockaddr_in *ipv4 = (struct sockaddr_in *)p->ai_addr;
+        if (temp->ai_family == AF_INET){
+            struct sockaddr_in *ipv4 = (struct sockaddr_in *)temp->ai_addr;
             addr = &(ipv4->sin_addr);
-            inet_ntop (p->ai_family, addr, remote_ip, sizeof(remote_ip));
-            freeaddrinfo(res);
+            inet_ntop (temp->ai_family, addr, remote_ip, sizeof(remote_ip));
         }
-        break;
     }
-
+    freeaddrinfo(result);
     peer_addr.sin_family = AF_INET;
     peer_addr.sin_port = htons(REMOTE_PORT);
     peer_addr.sin_addr.s_addr = inet_addr(remote_ip);
