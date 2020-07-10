@@ -29,7 +29,6 @@ reference: http://beej.us/guide/bgnet/html/#getaddrinfoprepare-to-launch
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <poll.h>
-#include "list.c"
 #include "list.h"
 
 #define MSG_MAX_LEN 1024
@@ -67,12 +66,12 @@ static bool nullchar = false;
 
 /*
     goal: get message from input and add that message to sendList
-    1. get message from keyboard
+    1. get message from keyboard or text file
     2. lock mutex_send
     3. add message to sendList
     4. unlock mutex_send
     4. let send thread send the message out
-    5. if message is '!':
+    5. if message is '!' or (it is '\0' and it is from reading a txt file) :
             no more message to be received: cancel other threads, exit
 */
 void *input_keyboard() {
@@ -84,12 +83,12 @@ void *input_keyboard() {
         // https://stackoverflow.com/a/22065708
         printf("Enter message\n");
         memset(msg, '\0', MSG_MAX_LEN);
-        fgets(msg, MSG_MAX_LEN, stdin);
-        // the msg will be a null character after read a txt file
+        read(0, msg, MSG_MAX_LEN);
+        // end reading text file, otherwise we get into infinite loop
         if (strlen(msg) == 0){
             nullchar = true;
         }
-        // don't want '\n' added by fgets
+        // don't want '\n' at end of msg 
         msg[strlen(msg)-1] = '\0';
         // Start critical section
         pthread_mutex_lock(&mutex_send);
@@ -150,6 +149,7 @@ void *send_data(void *remaddr) {
         pthread_mutex_lock(&mutex_send);
         // if nothing in sendList, wait
         if(List_count(sendList) == 0){
+            // testcancel would be needed when output thread want to cancel this thread
             pthread_testcancel();
             pthread_cond_wait(&cond_senderWait, &mutex_send);
         }
@@ -178,7 +178,6 @@ void *send_data(void *remaddr) {
 
 void *output_screen() {
     char msg[MSG_MAX_LEN];
-    pthread_testcancel();
     while(onChat){
         // block access to printList
         pthread_mutex_lock(&mutex_print);
@@ -186,6 +185,7 @@ void *output_screen() {
         // wait until receive thread 
         
         if(List_count(printList) == 0){
+            // testcancel needed when input thread want to cancel this thread
             pthread_testcancel();
             pthread_cond_wait(&cond_outputWait, &mutex_print);
         }
@@ -209,9 +209,9 @@ void *output_screen() {
 
 /*
     goal: receive message from socket, and add it to printList
-    lock acess to printList at the time of entering,
-    if printList is full, wait until output thread wake it up
-    receive message
+    1. receive message
+    2. add message to printList (critical section)
+    3. switch turn to output thread
     if message == '!' : close the socket
     add message to printList
 */
@@ -220,7 +220,6 @@ void *receive_data(void *remaddr) {
     char msg[MSG_MAX_LEN];
     int addrlen = sizeof(peer_addr);
     while (onChat){
-        pthread_mutex_lock(&mutex_print);
 
         // get message 
         int bytesRx = recvfrom(my_socket, msg, MSG_MAX_LEN, 0, (struct sockaddr *) &peer_addr, &addrlen);
@@ -249,7 +248,8 @@ void *receive_data(void *remaddr) {
     
             pthread_exit(0);
         }
-        // critical section
+        // enter critical section
+        pthread_mutex_lock(&mutex_print);
         List_add(printList, msg);
 
         // unlock access to printList
