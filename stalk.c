@@ -89,6 +89,7 @@ void *input_keyboard() {
         if (strlen(msg) == 0){
             nullchar = true;
         }
+        // don't want '\n' added by fgets
         msg[strlen(msg)-1] = '\0';
         // Start critical section
         pthread_mutex_lock(&mutex_send);
