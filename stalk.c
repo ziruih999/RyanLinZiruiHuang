@@ -39,14 +39,14 @@ reference: http://beej.us/guide/bgnet/html/#getaddrinfoprepare-to-launch
 
 static int my_socket;
 static struct sockaddr_in my_addr, peer_addr;
-static pthread_t keyboard, screen, receiveData, sendData;
+static pthread_t keyboard_in, screen_out, network_in, network_out;
 
-static List* sendList; //shared by input & send (consumer:send, producer:input)
-static List* printList; //shared by output & receive (consumer:output, producer:receive)
+static List* list_input; //shared by input & send (consumer:send, producer:input)
+static List* list_output; //shared by output & receive (consumer:output, producer:receive)
 
 // mutexs 
-static pthread_mutex_t mutex_send = PTHREAD_MUTEX_INITIALIZER; //for sendList 
-static pthread_mutex_t mutex_print = PTHREAD_MUTEX_INITIALIZER; //for printList 
+static pthread_mutex_t mutex_send = PTHREAD_MUTEX_INITIALIZER; //for input list
+static pthread_mutex_t mutex_print = PTHREAD_MUTEX_INITIALIZER; //for output list
 
 // condition variables
 static pthread_cond_t cond_inputWait = PTHREAD_COND_INITIALIZER; // wait send thread to send message
@@ -63,15 +63,21 @@ static bool onChat = true;
 static bool nullchar = false; 
 
 
+// from test program provided by instructor in Assignment1
+static int complexTestFreeCounter = 0;
+static void complexTestFreeFn(void* pItem) 
+{
+    if(pItem != NULL){
+        complexTestFreeCounter++;
+    }
+}
 
 /*
     goal: get message from input and add that message to sendList
     1. get message from keyboard or text file
-    2. lock mutex_send
-    3. add message to sendList
-    4. unlock mutex_send
-    4. let send thread send the message out
-    5. if message is '!' or (it is '\0' and it is from reading a txt file) :
+    2. add message to list_input (critical section)
+    3. let send thread send the message out
+    4. if message is '!' or (it is '\0' and it is from reading a txt file) :
             no more message to be received: cancel other threads, exit
 */
 void *input_keyboard() {
@@ -81,9 +87,10 @@ void *input_keyboard() {
         
         // get message from keyboard
         // https://stackoverflow.com/a/22065708
-        printf("Enter message\n");
+        printf("Enter message:\n");
         memset(msg, '\0', MSG_MAX_LEN);
-        read(0, msg, MSG_MAX_LEN);
+        int x = read(0, msg, MSG_MAX_LEN);
+        printf("%d",x);
         // end reading text file, otherwise we get into infinite loop
         if (strlen(msg) == 0){
             nullchar = true;
@@ -92,7 +99,10 @@ void *input_keyboard() {
         msg[strlen(msg)-1] = '\0';
         // Start critical section
         pthread_mutex_lock(&mutex_send);
-        List_add(sendList,msg); 
+        if(List_add(list_input,msg) < 0){
+            printf("failed to add input message into list");
+            exit(1);
+        }
         // End critical section
 
         // OK, now it is turn for send thread, unlock it
@@ -106,9 +116,9 @@ void *input_keyboard() {
             // turnoff onChat
             onChat = false;
             // cancel threads
-            pthread_cancel(sendData);
-            pthread_cancel(receiveData);
-            pthread_cancel(screen);
+            pthread_cancel(network_out);
+            pthread_cancel(network_in);
+            pthread_cancel(screen_out);
             
             close(my_socket);
             // destroy condition variables and mutex
@@ -119,7 +129,9 @@ void *input_keyboard() {
             pthread_cond_destroy(&cond_outputWait);
             pthread_cond_destroy(&cond_inputWait);
             pthread_cond_destroy(&cond_senderWait);
-            pthread_cond_destroy(&cond_receiverWait);     
+            pthread_cond_destroy(&cond_receiverWait);
+            List_free(list_input, complexTestFreeFn);
+            List_free(list_output, complexTestFreeFn);     
             pthread_exit(0);
             
         }
@@ -131,14 +143,11 @@ void *input_keyboard() {
 }
 
 /*
-    goal: get a message from sendList, then send it to remote user
-    1. lock the access to sendList when enter
-    2. if sendList is empty, wait until input thread wake it up
-    3. get a message from sendList
-    4. send message to remote user
-    5. if message = '!':
-        destroy CV and mutex
-        turn off onChat
+    goal: get a message from list_input, then send it to remote user
+    1. if list_input is empty, wait until input thread wake it up
+    2. get a message from list_input (critical section)
+    3. send message to remote user
+    4. wake up input thread
 */
 void *send_data(void *remaddr) {
     char msg[MSG_MAX_LEN];
@@ -147,15 +156,15 @@ void *send_data(void *remaddr) {
 
         // Start critical section
         pthread_mutex_lock(&mutex_send);
-        // if nothing in sendList, wait
-        if(List_count(sendList) == 0){
+        // if nothing in list_input, wait
+        if(List_count(list_input) == 0){
             // testcancel would be needed when output thread want to cancel this thread
             pthread_testcancel();
             pthread_cond_wait(&cond_senderWait, &mutex_send);
         }
-        strcpy(msg, List_first(sendList));
-        List_remove(sendList);
-        // leave Critical Section, unlock access to sendList
+        strcpy(msg, List_first(list_input));
+        List_remove(list_input);
+        // leave Critical Section, unlock access to list_input
         // input thread is waiting, signal it
         pthread_mutex_unlock(&mutex_send);
         pthread_cond_signal(&cond_inputWait);
@@ -170,30 +179,31 @@ void *send_data(void *remaddr) {
 
 
 /*
-    goal: get a message from printList and print it to screen
-    1. if printList is empty, wait until receive thread wake it up
-    2. get the message from printList
+    goal: get a message from list_output and print it to screen
+    1. if list_output is empty, wait until receive thread wake it up
+    2. get the message from list_output (critical section)
     3. print message to screen
+    4. wake up receive thread
 */
 
 void *output_screen() {
     char msg[MSG_MAX_LEN];
     while(onChat){
-        // block access to printList
+        // start critical section
         pthread_mutex_lock(&mutex_print);
-        // if no message in printList
+        // if no message in list_output
         // wait until receive thread 
-        
-        if(List_count(printList) == 0){
+        if(List_count(list_output) == 0){
             // testcancel needed when input thread want to cancel this thread
             pthread_testcancel();
             pthread_cond_wait(&cond_outputWait, &mutex_print);
         }
-        // copy and remove the first message from printList
-        strcpy(msg, List_first(printList));
-        List_remove(printList);
+        
+        // copy and remove the first message from list_output
+        strcpy(msg, List_first(list_output));
+        List_remove(list_output);
+        // leave Critical Section
 
-        // leave Critical Section, unlock access to printList
         // if receive thread is waiting, signal it
         pthread_mutex_unlock(&mutex_print);
         pthread_cond_signal(&cond_receiverWait);
@@ -208,12 +218,11 @@ void *output_screen() {
 
 
 /*
-    goal: receive message from socket, and add it to printList
+    goal: receive message from socket, and add it to list_output
     1. receive message
-    2. add message to printList (critical section)
-    3. switch turn to output thread
-    if message == '!' : close the socket
-    add message to printList
+    2. add message to list_output (critical section)
+    3. if message == '!' : close the socket, cancel threads, exit
+    4. switch turn to output thread
 */
 
 void *receive_data(void *remaddr) {
@@ -221,7 +230,7 @@ void *receive_data(void *remaddr) {
     int addrlen = sizeof(peer_addr);
     while (onChat){
 
-        // get message 
+        // get message (reference: Dr.Brian's workshop code)
         int bytesRx = recvfrom(my_socket, msg, MSG_MAX_LEN, 0, (struct sockaddr *) &peer_addr, &addrlen);
         // Make it null terminated (so string functions work):
         int terminateIdx = (bytesRx < MSG_MAX_LEN) ? bytesRx : MSG_MAX_LEN - 1;
@@ -232,9 +241,9 @@ void *receive_data(void *remaddr) {
             printf("......termination request by REMOTE-USER......\n");
             onChat = false;
             // cancel threads and socket
-            pthread_cancel(sendData);
-            pthread_cancel(screen);
-            pthread_cancel(keyboard);
+            pthread_cancel(network_out);
+            pthread_cancel(screen_out);
+            pthread_cancel(keyboard_in);
             close(my_socket);
             // destroy condition variables and mutex
             pthread_mutex_unlock(&mutex_print);
@@ -245,18 +254,23 @@ void *receive_data(void *remaddr) {
             pthread_cond_destroy(&cond_outputWait);
             pthread_cond_destroy(&cond_senderWait);
             pthread_cond_destroy(&cond_receiverWait);
+            List_free(list_input, complexTestFreeFn);
+            List_free(list_output, complexTestFreeFn);   
     
             pthread_exit(0);
         }
         // enter critical section
         pthread_mutex_lock(&mutex_print);
-        List_add(printList, msg);
 
-        // unlock access to printList
-        // pthread_mutex_unlock(&mutex_print);
+        if(List_add(list_output, msg) < 0){
+            printf("failed to add received message into list");
+            exit(1);
+        }
+
+        // wake up output thread and wait until it print the message
         pthread_cond_signal(&cond_outputWait);
         pthread_cond_wait(&cond_receiverWait, &mutex_print);
-        // unlock access to printList
+        // unlock access to list_output
         pthread_mutex_unlock(&mutex_print);
     }
     pthread_exit(0);
@@ -272,7 +286,7 @@ int main(int argc, char** argv){
     
     // Check argument format
     if (argc != 4){
-        printf("Usage: %s <local port> <remote hostname> <remote port>\n", argv[0]);
+        printf("Incorrect form entered, please reenter <local port> <remote hostname> <remote port>\n");
         return 0;
     }
 
@@ -333,17 +347,37 @@ int main(int argc, char** argv){
     peer_addr.sin_port = htons(REMOTE_PORT);
     peer_addr.sin_addr.s_addr = inet_addr(remote_ip);
 
+    // Network name resolution 
+    printf("* * * * * * * * * * * * * * * * * * * * * * * * * *\n");
+    printf("     IP ADDRESS OF REMOTE USER : %s \n", remote_ip);
+    printf("         CHAT SESSION GOING TO START \n");
+    printf("* * * * * * * * * * * * * * * * * * * * * * * * * * \n");
+
+
     // initialize Lists
-    sendList = List_create();
-    printList = List_create();
+    list_input = List_create();
+    list_output = List_create();
     
-    pthread_create(&keyboard, NULL, input_keyboard, NULL);
-    pthread_create(&screen, NULL, output_screen, NULL);
-    pthread_create(&receiveData, NULL, receive_data, NULL);
-    pthread_create(&sendData, NULL, send_data, NULL);
-    pthread_join(keyboard, NULL);
-    pthread_join(sendData, NULL);    
-    pthread_join(receiveData, NULL);
-    pthread_join(screen, NULL);
+    if(pthread_create(&keyboard_in, NULL, input_keyboard, NULL) != 0){
+        perror("pthread_create() error");
+        exit(1);
+    }
+    if(pthread_create(&screen_out, NULL, output_screen, NULL) != 0){
+        perror("pthread_create() error");
+        exit(1);
+    }
+    if(pthread_create(&network_in, NULL, receive_data, NULL) != 0){
+        perror("pthread_create() error");
+        exit(1);
+    }
+    if(pthread_create(&network_out, NULL, send_data, NULL) != 0){
+        perror("pthread_create() error");
+        exit(1);
+    }
+
+    pthread_join(keyboard_in, NULL);
+    pthread_join(network_out, NULL);    
+    pthread_join(network_in, NULL);
+    pthread_join(screen_out, NULL);
     return 0;
 }
