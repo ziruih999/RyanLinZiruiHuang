@@ -206,7 +206,8 @@ void *output_screen() {
         // if receive thread is waiting, signal it
         pthread_mutex_unlock(&mutex_print);
         pthread_cond_signal(&cond_receiverWait);
-        printf("Remote User: %s\n", msg);
+        printf("Remote User:");
+        puts(msg);
     }
     // pthread_exit(0);
     return NULL;
