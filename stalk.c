@@ -129,7 +129,8 @@ void *input_keyboard() {
             pthread_cond_destroy(&cond_receiverWait);
             List_free(list_input, complexTestFreeFn);
             List_free(list_output, complexTestFreeFn);     
-            pthread_exit(0);
+            // pthread_exit(0);
+            return NULL;
             
         }
         else{
@@ -171,7 +172,8 @@ void *send_data(void *remaddr) {
             exit(1);
         }   
     }
-    pthread_exit(0);
+    // pthread_exit(0);
+    return NULL;
 }
 
 
@@ -206,8 +208,8 @@ void *output_screen() {
         pthread_cond_signal(&cond_receiverWait);
         printf("Remote User: %s\n", msg);
     }
-    pthread_exit(0);
-   
+    // pthread_exit(0);
+    return NULL;
 }
 
 
@@ -254,7 +256,8 @@ void *receive_data(void *remaddr) {
             List_free(list_input, complexTestFreeFn);
             List_free(list_output, complexTestFreeFn);   
     
-            pthread_exit(0);
+            // pthread_exit(0);
+            return NULL;
         }
         // enter critical section
         pthread_mutex_lock(&mutex_print);
@@ -270,8 +273,8 @@ void *receive_data(void *remaddr) {
         // unlock access to list_output
         pthread_mutex_unlock(&mutex_print);
     }
-    pthread_exit(0);
-   
+    // pthread_exit(0);
+    return NULL;
 }
 
 
