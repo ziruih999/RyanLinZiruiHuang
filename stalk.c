@@ -31,7 +31,7 @@ reference: http://beej.us/guide/bgnet/html/#getaddrinfoprepare-to-launch
 #include <poll.h>
 #include "list.h"
 
-#define MSG_MAX_LEN 8
+#define MSG_MAX_LEN 1024
 
 
 
@@ -281,26 +281,18 @@ void *receive_data(void *remaddr) {
 
 
 
-
-int main(int argc, char** argv){
-    
-    // Check argument format
-    if (argc != 4){
-        printf("Incorrect form entered, please reenter <local port> <remote hostname> <remote port>\n");
-        return 0;
-    }
-
+void network_init(char** argv){
     // Set up socket address for both local and remote host
     // Also check port number
     const int MY_PORT = atoi(argv[1]);
     const int REMOTE_PORT = atoi(argv[3]);
     if (MY_PORT < 0 || MY_PORT > 65535){
         printf("Please enter correct [my port number]!\n");
-        return 0;
+        exit(1);
     }
     if (REMOTE_PORT < 0 || REMOTE_PORT > 65535){
         printf("Please enter correct [remote port number]!\n");
-        return 0;
+        exit(1);
     }
     
     // local socket
@@ -313,12 +305,12 @@ int main(int argc, char** argv){
     my_socket = socket(AF_INET, SOCK_DGRAM, 0);
     if (my_socket < 0){
         printf("Failed to create socket\n");
-        return 0;
+        exit(1);
     }
     // Bind the socket to the port (MY_PORT)
     if (bind(my_socket, (struct sockaddr*) &my_addr, sizeof(my_addr)) < 0){
         printf("Failed to bind socket\n");
-        return 0;
+        exit(1);
     }
 
     // set up ip address of remote host
@@ -332,7 +324,7 @@ int main(int argc, char** argv){
 
     if ((rval = getaddrinfo(argv[2], argv[3], &hint, &result))!=0){
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rval));
-        return 1;
+        exit(1);
     }
     for (temp = result; temp != NULL; temp = temp->ai_next){
         void *addr;
@@ -353,7 +345,20 @@ int main(int argc, char** argv){
     printf("         CHAT SESSION GOING TO START \n");
     printf("* * * * * * * * * * * * * * * * * * * * * * * * * * \n");
 
+}
 
+
+
+int main(int argc, char** argv){
+    
+    // Check argument format
+    if (argc != 4){
+        printf("Incorrect form entered, please reenter <local port> <remote hostname> <remote port>\n");
+        return 0;
+    }
+
+    // initialize network stuff
+    network_init(argv);
     // initialize Lists
     list_input = List_create();
     list_output = List_create();
