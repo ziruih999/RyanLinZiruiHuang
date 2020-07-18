@@ -89,9 +89,7 @@ void *input_keyboard() {
         // https://stackoverflow.com/a/22065708
         printf("Enter message:\n");
         memset(msg, '\0', MSG_MAX_LEN);
-        int x = read(0, msg, MSG_MAX_LEN);
-        // end reading text file, otherwise we get into infinite loop
-        if(x == 0){
+        if(fgets(msg, MSG_MAX_LEN, stdin) == NULL){
             nullchar = true;
         }
         // don't want '\n' at end of msg 
