@@ -31,7 +31,7 @@ reference: http://beej.us/guide/bgnet/html/#getaddrinfoprepare-to-launch
 #include <poll.h>
 #include "list.h"
 
-#define MSG_MAX_LEN 1024
+#define MSG_MAX_LEN 8
 
 
 
@@ -129,7 +129,7 @@ void *input_keyboard() {
             pthread_cond_destroy(&cond_receiverWait);
             List_free(list_input, complexTestFreeFn);
             List_free(list_output, complexTestFreeFn);     
-            // pthread_exit(0);
+
             return NULL;
             
         }
@@ -172,7 +172,7 @@ void *send_data(void *remaddr) {
             exit(1);
         }   
     }
-    // pthread_exit(0);
+
     return NULL;
 }
 
@@ -209,7 +209,7 @@ void *output_screen() {
         printf("Remote User:");
         puts(msg);
     }
-    // pthread_exit(0);
+
     return NULL;
 }
 
@@ -244,6 +244,7 @@ void *receive_data(void *remaddr) {
             pthread_cancel(network_out);
             pthread_cancel(screen_out);
             pthread_cancel(keyboard_in);
+
             close(my_socket);
             // destroy condition variables and mutex
             pthread_mutex_unlock(&mutex_print);
@@ -257,7 +258,7 @@ void *receive_data(void *remaddr) {
             List_free(list_input, complexTestFreeFn);
             List_free(list_output, complexTestFreeFn);   
     
-            // pthread_exit(0);
+
             return NULL;
         }
         // enter critical section
@@ -274,11 +275,9 @@ void *receive_data(void *remaddr) {
         // unlock access to list_output
         pthread_mutex_unlock(&mutex_print);
     }
-    // pthread_exit(0);
+
     return NULL;
 }
-
-
 
 
 
