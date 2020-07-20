@@ -108,7 +108,7 @@ void *input_keyboard() {
         pthread_cond_wait(&cond_inputWait, &mutex_send);
         // if input message is '!', I want to terminate the conversation
         // ready to return to main thread
-        if ((msg[0] == '!' && strlen(msg) == 1) || nullchar == true ){
+        if ((msg[0] == '!' && strlen(msg) == 1) || nullchar == true){
             printf("...... terminating request by ME ......\n");            
             // turnoff onChat
             onChat = false;
@@ -151,7 +151,6 @@ void *send_data(void *remaddr) {
     char msg[MSG_MAX_LEN];
     unsigned int sin_len = sizeof(peer_addr);
     while(onChat){
-
         // Start critical section
         pthread_mutex_lock(&mutex_send);
         // if nothing in list_input, wait
@@ -164,6 +163,7 @@ void *send_data(void *remaddr) {
         List_remove(list_input);
         // leave Critical Section, unlock access to list_input
         // input thread is waiting, signal it
+
         pthread_mutex_unlock(&mutex_send);
         pthread_cond_signal(&cond_inputWait);
         // send message to remote use
@@ -235,6 +235,16 @@ void *receive_data(void *remaddr) {
         // Make it null terminated (so string functions work):
         int terminateIdx = (bytesRx < MSG_MAX_LEN) ? bytesRx : MSG_MAX_LEN - 1;
 		msg[terminateIdx] = 0;
+        
+        // enter critical section
+        pthread_mutex_lock(&mutex_print);
+        if(List_add(list_output, msg) < 0){
+            printf("failed to add received message into list");
+            exit(1);
+        }
+        // wake up output thread and wait until it print the message
+        pthread_cond_signal(&cond_outputWait);
+        pthread_cond_wait(&cond_receiverWait, &mutex_print);
 
         // if it's a termination message
         if ((msg[0] == '!' && msg[1]== '\0')){
@@ -258,25 +268,14 @@ void *receive_data(void *remaddr) {
             List_free(list_input, complexTestFreeFn);
             List_free(list_output, complexTestFreeFn);   
     
-
             return NULL;
         }
-        // enter critical section
-        pthread_mutex_lock(&mutex_print);
 
-        if(List_add(list_output, msg) < 0){
-            printf("failed to add received message into list");
-            exit(1);
+        else{
+            // unlock access to list_output
+            pthread_mutex_unlock(&mutex_print);
         }
-
-        // wake up output thread and wait until it print the message
-        pthread_cond_signal(&cond_outputWait);
-        pthread_cond_wait(&cond_receiverWait, &mutex_print);
-        // unlock access to list_output
-        pthread_mutex_unlock(&mutex_print);
     }
-
-    return NULL;
 }
 
 
@@ -380,9 +379,23 @@ int main(int argc, char** argv){
         exit(1);
     }
 
-    pthread_join(keyboard_in, NULL);
-    pthread_join(network_out, NULL);    
-    pthread_join(network_in, NULL);
-    pthread_join(screen_out, NULL);
+    if(pthread_join(keyboard_in, NULL) !=0){
+        perror("pthread_join() error");
+        exit(1);
+    }
+    if(pthread_join(network_out, NULL) !=0){
+        perror("pthread_join() error");
+        exit(1);
+    }
+    if(pthread_join(network_in, NULL) !=0){
+        perror("pthread_join() error");
+        exit(1);
+    }
+    if(pthread_join(screen_out, NULL) !=0){
+        perror("pthread_join() error");
+        exit(1);
+    }
+
+
     return 0;
 }
