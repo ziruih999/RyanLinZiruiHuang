@@ -39,6 +39,9 @@ int main(int numArgs, char* args[]){
             for(int i=1; i<numArgs;i++){
                 if (strncmp("-", args[i], 1)!=0){
                     defaultOption(args[i], 1);
+                    if (i != numArgs-1){
+                        printf("\n");
+                    }
                 }
             } 
         }
@@ -60,6 +63,9 @@ int main(int numArgs, char* args[]){
             for(int i=1; i<numArgs;i++){
                 if (strncmp("-", args[i], 1)!=0){
                     iOption(args[i], 1);
+                    if (i != numArgs-1){
+                        printf("\n");
+                    }
                 }
             } 
         }
@@ -81,6 +87,9 @@ int main(int numArgs, char* args[]){
             for(int i=1; i<numArgs;i++){
                 if (strncmp("-", args[i], 1)!=0){
                     lOption(args[i], 1);
+                    if (i != numArgs-1){
+                        printf("\n");
+                    }
                 }
             } 
         }
@@ -89,12 +98,15 @@ int main(int numArgs, char* args[]){
     // -R option
     else if(optioni == 0 && optionl == 0 && optionR == 1){
         if (path_count == 0){
-            ROption(".");
+            xROption(".", defaultOption);
         }
         else{
             for(int i=1; i<numArgs;i++){
                 if (strncmp("-", args[i], 1)!=0){
-                    ROption(args[i]);
+                    xROption(args[i], defaultOption);
+                    if (i != numArgs-1){
+                        printf("\n");
+                    }
                 }
             } 
         }
@@ -116,20 +128,23 @@ int main(int numArgs, char* args[]){
             for(int i=1; i<numArgs;i++){
                 if (strncmp("-", args[i], 1)!=0){
                     ilOption(args[i], 1);
+                    if (i != numArgs-1){
+                        printf("\n");
+                    }
                 }
             } 
         }
     }
 
-    // -Ri option
+    // -iR option
     else if(optioni == 1 && optionl == 0 && optionR == 1){
         if (path_count == 0){
-            iROption(".");
+            xROption(".", iOption);
         }
         else{
             for(int i=1; i<numArgs;i++){
                 if (strncmp("-", args[i], 1)!=0){
-                    iROption(args[i]);
+                    xROption(args[i], iOption);
                 }
             } 
         }
@@ -138,12 +153,12 @@ int main(int numArgs, char* args[]){
     // -lR option
     else if(optioni == 0 && optionl == 1 && optionR == 1){
         if (path_count == 0){
-            lROption(".");
+            xROption(".", lOption);
         }
         else{
             for(int i=1; i<numArgs;i++){
                 if (strncmp("-", args[i], 1)!=0){
-                    lROption(args[i]);
+                    xROption(args[i], lOption);
                 }
             } 
         }
@@ -152,12 +167,12 @@ int main(int numArgs, char* args[]){
     // -ilR option
     else if(optioni == 1 && optionl == 1 && optionR == 1){
         if (path_count == 0){
-            ilROption(".");
+            xROption(".", ilOption);
         }
         else{
             for(int i=1; i<numArgs;i++){
                 if (strncmp("-", args[i], 1)!=0){
-                    ilROption(args[i]);
+                    xROption(args[i],ilOption);
                 }
             } 
         }
@@ -290,9 +305,18 @@ void lOption(char *path, int showpath){
         strcat(abs_path, "/");
         strcat(abs_path, dpList[i].d_name);
         stat(abs_path, &fileStat);
-        // type and permission
+        // type 
+        if (S_ISDIR(fileStat.st_mode)){
+        	printf("d");
+        }
+        else if (S_ISLNK(fileStat.st_mode)){
+        	printf("l");
+        }
+        else{
+        	printf("-");
+        }
+        // permissions
         // Reference : https://stackoverflow.com/a/10323127
-        printf( (S_ISDIR(fileStat.st_mode)) ? "d":"-");
         printf( (fileStat.st_mode & S_IRUSR) ? "r" : "-");
         printf( (fileStat.st_mode & S_IWUSR) ? "w" : "-");
         printf( (fileStat.st_mode & S_IXUSR) ? "x" : "-");
@@ -320,39 +344,6 @@ void lOption(char *path, int showpath){
         printf("%s ", timebuffer);
         // file name
         printf("%s\n", dpList[i].d_name);
-    }
-    closedir(directory);
-    free(dpList);
-}
-
-void ROption(char* path){
-    DIR *directory;
-    struct stat fileStat;
-    int n = 0;
-    directory = opendir(path);
-    if (directory == NULL){
-        fprintf(stderr, "myls: cannot access '%s': %s\n ", path, strerror(errno));
-        return;
-    }
-    n = count_dpList(directory);
-
-    rewinddir(directory);
-    struct dirent *dpList = get_dpList(directory, n);
-    sort_dpList(dpList, n);
-
-    defaultOption(path, 1);
-
-    // recursive step
-    for (int i=0; i<n; i++){
-        char abs_path[MAX_NAME_LENGTH];
-        strcpy(abs_path, path);
-        strcat(abs_path, "/");
-        strcat(abs_path, dpList[i].d_name);
-        stat(abs_path, &fileStat);
-        if (S_ISDIR(fileStat.st_mode)){
-            printf("\n");
-            ROption(abs_path);
-        }
     }
     closedir(directory);
     free(dpList);
@@ -395,8 +386,16 @@ void ilOption(char *path, int showpath){
         // inode
         printf("%*ld ", inodeDigit, fileStat.st_ino);
         // type and permission
+        if (S_ISDIR(fileStat.st_mode)){
+        	printf("d");
+        }
+        else if (S_ISLNK(fileStat.st_mode)){
+        	printf("l");
+        }
+        else{
+        	printf("-");
+        }
         // Reference : https://stackoverflow.com/a/10323127
-        printf( (S_ISDIR(fileStat.st_mode)) ? "d":"-");
         printf( (fileStat.st_mode & S_IRUSR) ? "r" : "-");
         printf( (fileStat.st_mode & S_IWUSR) ? "w" : "-");
         printf( (fileStat.st_mode & S_IXUSR) ? "x" : "-");
@@ -429,7 +428,7 @@ void ilOption(char *path, int showpath){
     free(dpList);
 }
 
-void iROption(char* path){
+void xROption(char* path, void(*Option)(char*, int)){
     DIR *directory;
     struct stat fileStat;
     int n = 0;
@@ -448,18 +447,20 @@ void iROption(char* path){
     sort_dpList(dpList, n);
 
     // print information
-    iOption(path, 1);
+    Option(path, 1);
 
     // recursive step
     for (int i=0; i<n; i++){
         char abs_path[MAX_NAME_LENGTH];
         strcpy(abs_path, path);
-        strcat(abs_path, "/");
+        if (path[strlen(path)-1] !='/'){
+            strcat(abs_path, "/");
+        }
         strcat(abs_path, dpList[i].d_name);
         stat(abs_path, &fileStat);
         if (S_ISDIR(fileStat.st_mode)){
             printf("\n");
-            iROption(abs_path);
+            xROption(abs_path, Option);
         }
     }
     free(dpList);
@@ -467,79 +468,6 @@ void iROption(char* path){
 }
 
 
-void lROption(char* path){
-    DIR *directory;
-    struct stat fileStat;
-    int n = 0;
-    directory = opendir(path);
-    if (directory == NULL){
-         fprintf(stderr, "myls: cannot access '%s': %s\n ", path, strerror(errno));
-         return;
-     }
-     n = count_dpList(directory);
-
-    // add these dirent structs to an array
-    // so we can sort them
-    rewinddir(directory);
-    // get an array of dirent struct
-     struct dirent *dpList = get_dpList(directory, n);
-    sort_dpList(dpList, n);
-
-    // print information
-    lOption(path, 1);
-
-    // recursive step
-    for (int i=0; i<n; i++){
-        char abs_path[MAX_NAME_LENGTH];
-        strcpy(abs_path, path);
-        strcat(abs_path, "/");
-        strcat(abs_path, dpList[i].d_name);
-        stat(abs_path, &fileStat);
-        if (S_ISDIR(fileStat.st_mode)){
-            printf("\n");
-            lROption(abs_path);
-        }
-    }
-    free(dpList);
-    closedir(directory);
-}
-
-void ilROption(char* path){
-    DIR *directory;
-    struct stat fileStat;
-    int n = 0;
-    directory = opendir(path);
-    if (directory == NULL){
-         fprintf(stderr, "myls: cannot access '%s': %s\n ", path, strerror(errno));
-         return;
-     }
-     n = count_dpList(directory);
-
-    // add these dirent structs to an array
-    // so we can sort them
-    rewinddir(directory);
-    // get an array of dirent struct
-     struct dirent *dpList = get_dpList(directory, n);
-    sort_dpList(dpList, n);
-
-    // print information
-    ilOption(path, 1);
-
-    // recursive step
-    for (int i=0; i<n; i++){
-        char abs_path[MAX_NAME_LENGTH];
-        strcpy(abs_path, path);
-        strcat(abs_path, "/");
-        strcat(abs_path, dpList[i].d_name);
-        stat(abs_path, &fileStat);
-        if (S_ISDIR(fileStat.st_mode)){
-            printf("\n");
-            ilROption(abs_path);
-        }
-    }
-    free(dpList);
-    closedir(directory);
-}
 
 void sort_dpList(struct dirent dpList[], int n){
     for(int i=0; i<n; i++){
