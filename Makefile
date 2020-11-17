@@ -1,7 +1,8 @@
-all:UDPServer UDPClient Stalk Test
+all:Stalk 
+
 
 Stalk:
-	gcc -pthread -o stalk stalk.c
+	gcc -pthread -o s-talk s-talk.c list.c
 
 clean:
-	rm -f stalk
+	rm -f s-talk

@@ -54,8 +54,6 @@ static pthread_cond_t cond_outputWait = PTHREAD_COND_INITIALIZER; // wait new me
 static pthread_cond_t cond_senderWait = PTHREAD_COND_INITIALIZER; // wait new message from input thread
 static pthread_cond_t cond_receiverWait = PTHREAD_COND_INITIALIZER; // wait output thread to print the message
 
-// is chat still open?
-static bool onChat = true; 
 
 // for fgets read text file
 // fgets will make msg = "\0" after reading the file
@@ -83,7 +81,7 @@ static void complexTestFreeFn(void* pItem)
 void *input_keyboard() {
     
     char msg[MSG_MAX_LEN];
-    while (onChat){
+    while (1){
         
         // get message from keyboard
         // https://stackoverflow.com/a/22065708
@@ -97,7 +95,7 @@ void *input_keyboard() {
         // Start critical section
         pthread_mutex_lock(&mutex_send);
         if(List_add(list_input,msg) < 0){
-            printf("failed to add input message into list");
+            printf("failed to add input message into list\n");
             exit(1);
         }
         // End critical section
@@ -110,8 +108,9 @@ void *input_keyboard() {
         // ready to return to main thread
         if ((msg[0] == '!' && strlen(msg) == 1) || nullchar == true){
             printf("...... terminating request by ME ......\n");            
-            // turnoff onChat
-            onChat = false;
+            sleep(1);
+            List_free(list_input, complexTestFreeFn);
+            List_free(list_output, complexTestFreeFn);  
             // cancel threads
             pthread_cancel(network_out);
             pthread_cancel(network_in);
@@ -127,8 +126,7 @@ void *input_keyboard() {
             pthread_cond_destroy(&cond_inputWait);
             pthread_cond_destroy(&cond_senderWait);
             pthread_cond_destroy(&cond_receiverWait);
-            List_free(list_input, complexTestFreeFn);
-            List_free(list_output, complexTestFreeFn);     
+   
 
             return NULL;
             
@@ -150,7 +148,7 @@ void *input_keyboard() {
 void *send_data(void *remaddr) {
     char msg[MSG_MAX_LEN];
     unsigned int sin_len = sizeof(peer_addr);
-    while(onChat){
+    while(1){
         // Start critical section
         pthread_mutex_lock(&mutex_send);
         // if nothing in list_input, wait
@@ -187,7 +185,7 @@ void *send_data(void *remaddr) {
 
 void *output_screen() {
     char msg[MSG_MAX_LEN];
-    while(onChat){
+    while(1){
         // start critical section
         pthread_mutex_lock(&mutex_print);
         // if no message in list_output
@@ -228,10 +226,14 @@ void *output_screen() {
 void *receive_data(void *remaddr) {
     char msg[MSG_MAX_LEN];
     int addrlen = sizeof(peer_addr);
-    while (onChat){
-
+    while (1){
+        // memset(msg, '\0', MSG_MAX_LEN);
         // get message (reference: Dr.Brian's workshop code)
         int bytesRx = recvfrom(my_socket, msg, MSG_MAX_LEN, 0, (struct sockaddr *) &peer_addr, &addrlen);
+        if (bytesRx < 0){
+            printf("recvfrom() failed\n");
+            exit(1);
+        }
         // Make it null terminated (so string functions work):
         int terminateIdx = (bytesRx < MSG_MAX_LEN) ? bytesRx : MSG_MAX_LEN - 1;
 		msg[terminateIdx] = 0;
@@ -249,7 +251,9 @@ void *receive_data(void *remaddr) {
         // if it's a termination message
         if ((msg[0] == '!' && msg[1]== '\0')){
             printf("......termination request by REMOTE-USER......\n");
-            onChat = false;
+            sleep(1);
+            List_free(list_input, complexTestFreeFn);
+            List_free(list_output, complexTestFreeFn);
             // cancel threads and socket
             pthread_cancel(network_out);
             pthread_cancel(screen_out);
@@ -265,8 +269,7 @@ void *receive_data(void *remaddr) {
             pthread_cond_destroy(&cond_outputWait);
             pthread_cond_destroy(&cond_senderWait);
             pthread_cond_destroy(&cond_receiverWait);
-            List_free(list_input, complexTestFreeFn);
-            List_free(list_output, complexTestFreeFn);   
+   
     
             return NULL;
         }
@@ -281,6 +284,7 @@ void *receive_data(void *remaddr) {
 
 
 void network_init(char** argv){
+    // reference:https://stackoverflow.com/a/15027222
     // Set up socket address for both local and remote host
     // Also check port number
     const int MY_PORT = atoi(argv[1]);
