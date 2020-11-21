@@ -13,7 +13,6 @@ static int valve = 0; //only initialize two arrays at first time create a list
 
 List* List_create(){
     //initialize head_array and node_array
-    
     if(valve==0){
         int i;
         for(i=0;i<LIST_MAX_NUM_HEADS;i++){
